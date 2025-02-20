@@ -1,8 +1,10 @@
 #include <iostream>
 #include <conio.h>
 #include <vector>
+#include <unordered_set>
 #include <windows.h>
 #include <ctime>
+#include <sstream>
 
 using namespace std;
 using std::cout; // 添加这行代码
@@ -27,6 +29,7 @@ struct Position {
 class SnakeGame {
 public:
     vector<Position> snake; // 蛇的身体位置
+    unordered_set<int> snakeSet; // 用于快速检查碰撞
     Position food; // 食物位置
     Direction dir; // 当前方向
     bool gameOver; // 游戏结束标志
@@ -40,11 +43,9 @@ public:
         food.y = rand() % HEIGHT;
 
         // 确保食物不在蛇身上
-        for (const auto& pos : snake) {
-            if (pos.x == food.x && pos.y == food.y) {
-                SetupFood(); // 递归确保食物位置有效
-                break;
-            }
+        while (snakeSet.count(food.y * WIDTH + food.x)) {
+            food.x = rand() % WIDTH;
+            food.y = rand() % HEIGHT;
         }
     }
 
@@ -55,10 +56,8 @@ public:
             return true;
 
         // 检查是否撞到自己
-        for (size_t i = 1; i < snake.size(); i++) {
-            if (snake[i].x == head.x && snake[i].y == head.y)
-                return true;
-        }
+        if (snakeSet.count(head.y * WIDTH + head.x))
+            return true;
 
         return false;
     }
@@ -66,7 +65,9 @@ public:
 public:
     // 构造函数，初始化游戏状态
     SnakeGame() : dir(STOP), gameOver(false), paused(false), score(0), level(1) {
-        snake.push_back({ WIDTH / 2, HEIGHT / 2 }); // 初始化蛇头位置
+        Position initialPos = { WIDTH / 2, HEIGHT / 2 };
+        snake.push_back(initialPos); // 初始化蛇头位置
+        snakeSet.insert(initialPos.y * WIDTH + initialPos.x);
         SetupFood(); // 初始化食物位置
     }
 
@@ -108,40 +109,38 @@ public:
         }
         else {
             // 移动蛇身，去掉尾部
+            Position tail = snake.back();
+            snakeSet.erase(tail.y * WIDTH + tail.x);
             snake.pop_back();
         }
 
         // 添加新的头部
         snake.insert(snake.begin(), newHead);
+        snakeSet.insert(newHead.y * WIDTH + newHead.x);
     }
-	//画出游戏界面
-    void Draw() {
-        // 使用Windows API清屏
-        HANDLE hOut;
-        COORD Position;
 
-        hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-        Position.X = 0;
-        Position.Y = 0;
-        SetConsoleCursorPosition(hOut, Position);
+    // 画出游戏界面
+    void Draw() {
+        // 使用字符串缓冲区
+        std::string buffer;
 
         // 打印顶部边界
         for (int j = 0; j < WIDTH + 1; j++) {
-            cout << "#" << ' ';
+            buffer += "# ";
         }
-        cout << endl;
+        buffer += "\n";
 
         for (int i = 0; i < HEIGHT; i++) {
             for (int j = 0; j < WIDTH; j++) {
                 if (j == 0) {
                     // 打印左边界
-                    cout << "#";
+                    buffer += "#";
                 }
 
                 bool isSnake = false;
                 for (const auto& pos : snake) {
                     if (pos.x == j && pos.y == i) {
-                        cout << SNAKE;
+                        buffer += SNAKE;
                         isSnake = true;
                         break;
                     }
@@ -149,38 +148,47 @@ public:
 
                 if (!isSnake) {
                     if (i == food.y && j == food.x)
-                        cout << FOOD;
+                        buffer += FOOD;
                     else
-                        cout << EMPTY;
+                        buffer += EMPTY;
                 }
 
                 // 每打印完一个字符后，如果不是最后一个字符，则打印空格
                 if (j < WIDTH - 1)
-                    cout << " ";
+                    buffer += " ";
 
                 if (j == WIDTH - 1) {
                     // 打印右边界
-                    cout << "#";
+                    buffer += "#";
                 }
             }
-            cout << endl; // 每打印完一行后换行
+            buffer += "\n"; // 每打印完一行后换行
         }
 
         // 打印底部边界
         for (int j = 0; j < WIDTH + 1; j++) {
-            cout << "#" << ' ';
+            buffer += "# ";
         }
-        cout << endl;
+        buffer += "\n";
 
         // 显示当前得分和等级
-        cout << "Score: " << score << "  Level: " << level << endl;
+        buffer += "Score: " + std::to_string(score) + "  Level: " + std::to_string(level) + "\n";
 
         // 如果游戏暂停，显示暂停信息
         if (paused) {
-            cout << "Game Paused. Press 'p' to resume." << endl;
+            buffer += "Game Paused. Press 'p' to resume.\n";
         }
-    }
 
+        // 使用Windows API清屏并输出缓冲区内容
+        HANDLE hOut;
+        COORD Position;
+
+        hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        Position.X = 0;
+        Position.Y = 0;
+        SetConsoleCursorPosition(hOut, Position);
+        cout << buffer;
+    }
 
     // 切换暂停状态
     void TogglePause() {
@@ -188,31 +196,35 @@ public:
     }
 };
 
+void ProcessInput(SnakeGame& game) {
+    if (_kbhit()) { // 检查是否有键盘输入
+        switch (_getch()) {
+        case 'a':
+        case 'A': game.ChangeDirection(LEFT); break;
+        case 'd':
+        case 'D': game.ChangeDirection(RIGHT); break;
+        case 'w':
+        case 'W': game.ChangeDirection(UP); break;
+        case 's':
+        case 'S': game.ChangeDirection(DOWN); break;
+        case 'p':
+        case 'P': game.TogglePause(); break; // 切换暂停状态
+        case 'q':
+        case 'Q': game.gameOver = true; break; // 退出游戏
+        }
+    }
+}
+
 int main() {
     srand(time(0)); // 初始化随机数生成器
     SnakeGame game;
     cout << "使用 'W','A','S','D'来控制蛇的移动（大小写都行）, 'P' 暂停, 'Q' 停止游戏（一定要把键盘转为英语输入）" << endl;
-	cout << "每吃到一个食物得10分，每50分升一级" << endl;
-	cout << "游戏等级越高，蛇移动速度越快" << endl;
+    cout << "每吃到一个食物得10分，每50分升一级" << endl;
+    cout << "游戏等级越高，蛇移动速度越快" << endl;
     cout << "按任意键开始..." << endl;
     _getch(); // 等待用户按键
     while (!game.gameOver) {
-        if (_kbhit()) { // 检查是否有键盘输入
-            switch (_getch()) {
-            case 'a':
-            case 'A': game.ChangeDirection(LEFT); break;
-            case 'd':
-            case 'D': game.ChangeDirection(RIGHT); break;
-            case 'w':
-            case 'W': game.ChangeDirection(UP); break;
-            case 's':
-            case 'S': game.ChangeDirection(DOWN); break;
-            case 'p':
-            case 'P': game.TogglePause(); break; // 切换暂停状态
-            case 'q':
-            case 'Q': game.gameOver = true; break; // 退出游戏
-            }
-        }
+        ProcessInput(game); // 处理输入
 
         if (!game.paused) {
             game.Move(); // 移动蛇
@@ -226,6 +238,6 @@ int main() {
     }
 
     cout << "Game Over!" << endl;
-	Sleep(2000); // 等待2秒
+    Sleep(2000); // 等待2秒
     return 0;
 }
